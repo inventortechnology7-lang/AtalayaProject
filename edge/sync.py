@@ -44,10 +44,12 @@ def iso(t, respaldo):
 
 def armar(filas):
     """filas del outbox (en orden) -> cuerpo del lote de Negra."""
-    al, lg, mu = [], [], []
+    al, lg, mu, puertas = [], [], [], []
     for _, _, tipo, p, creado in filas:
         d = json.loads(p)
-        if tipo == "alarma":
+        if tipo == "puerta":
+            puertas.append(dict(d, t=iso(d.get("t"), creado)))
+        elif tipo == "alarma":
             est = "cerrada" if not d.get("abierta", True) else ("reconocida" if d.get("reconocida") else "activa")
             al.append(dict(uid="a-" + d["uid"], sistema=d.get("sistema") or "?", severidad=int(d.get("sev") or 0),
                            detalle=d.get("detalle") or "", estado=est, creada=iso(d.get("t"), creado),
@@ -58,7 +60,7 @@ def armar(filas):
         elif tipo == "muestra":
             mu.append(dict(uid="m-" + d["uid"], sistema=d.get("sistema") or "?", magnitud=d.get("magnitud") or "?",
                            valor=d.get("valor"), unidad=d.get("unidad") or "", tomada=iso(d.get("recibido"), creado)))
-    return dict(condominioId=CONDO_ID, alarmas=al, logs=lg, muestras=mu)
+    return dict(condominioId=CONDO_ID, alarmas=al, logs=lg, muestras=mu, puertas=puertas)
 
 
 class Enlace:

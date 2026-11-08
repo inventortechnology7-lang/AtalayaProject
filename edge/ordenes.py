@@ -5,6 +5,7 @@ Deja UNA conexión en vivo a Negra (GET /api/eventos, text/event-stream). Solo c
 ordenes_aplicativo / ordenes_web (+ carpetas ordenes-aplicativo/ y ordenes-web/) y se la pasa al
 receptor por su socket local, que la manda a la placa y registra el log (va a Negra en el lote).
 Sin consultas periódicas."""
+from datetime import datetime
 import hashlib, json, logging, socket, sqlite3, sys, time, urllib.error, urllib.request
 from pathlib import Path
 
@@ -33,7 +34,7 @@ def abrir_db():
 
 
 def al_receptor(pue, linea, origen, oid=""):
-    """-> (ok, texto). Si el receptor no responde, ok=None (se reintenta luego)."""
+    """-> (ok, texto). Si el receptor no responde, ok=None (nunca se reintenta)."""
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(10)
@@ -68,12 +69,19 @@ def log_local(db, msg):
 
 def entregar_pendientes(db):
     for origen, t in TABLA.items():
-        for oid, destino, linea in db.execute(f"SELECT id,destino,linea FROM {t} WHERE estado='pendiente' ORDER BY id").fetchall():
+        for oid, destino, linea, crudo in db.execute(f"SELECT id,destino,linea,crudo FROM {t} WHERE estado='pendiente' ORDER BY id").fetchall():
             pue = str(destino or "").replace("puerta-", "").upper()
             # Claim before network IO: after a crash an uncertain physical command is never replayed.
             db.execute(f"UPDATE {t} SET estado='incierta', resultado='entrega iniciada; sin confirmacion fisica' WHERE id=?", (oid,))
             db.commit()
-            if pue not in ("A", "B") or linea not in LINEAS:
+            try:
+                expiry = datetime.fromisoformat(json.loads(crudo).get("expires", "").replace("Z", "+00:00"))
+                expires = expiry.timestamp() if expiry.tzinfo else 0
+            except (ValueError, TypeError, AttributeError):
+                expires = 0
+            if expires <= time.time():
+                ok, txt = False, "orden caducada o sin caducidad verificable; no enviada"
+            elif pue not in ("A", "B") or linea not in LINEAS:
                 ok, txt = False, f"orden inválida: destino={destino} linea={linea}"
             else:
                 ok, txt = al_receptor(pue, linea, origen, str(oid))
@@ -135,7 +143,9 @@ def main():
         db = None
         try:
             db = abrir_db()
-            entregar_pendientes(db)
+            for table in TABLA.values():
+                db.execute(f"UPDATE {table} SET estado='caducada',resultado='no reenviar tras reinicio' WHERE estado='pendiente'")
+            db.commit()
             t0 = time.time()
             escuchar(enlace, db)
             espera = 1 if time.time() - t0 > 60 else espera

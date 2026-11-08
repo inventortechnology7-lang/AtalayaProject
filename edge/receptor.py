@@ -143,10 +143,11 @@ class Almacen:
           version=pantalla.version+1, cambiado=excluded.cambiado""", (nodo, nuevo_cfg, nuevo_st, time.time()))
         return True
 
+    @atomic
     def puerta(self, nodo, st):
         """Guarda el estado de la puerta (st.pue). Devuelve (pue, el_lista) si 'el' cambió o volvió de caída."""
         pue = str(st.get("pue") or "").upper()
-        if not pue:
+        if pue not in EL_INDICES:
             return None
         el = st.get("el") if isinstance(st.get("el"), list) else None
         fila = self.db.execute("SELECT el, caida FROM puertas WHERE pue=?", (pue,)).fetchone()
@@ -155,9 +156,18 @@ class Almacen:
           ON CONFLICT(pue) DO UPDATE SET nodo=excluded.nodo, puerta=COALESCE(excluded.puerta,puertas.puerta),
           el=excluded.el, up=COALESCE(excluded.up,puertas.up), actualizado=excluded.actualizado, caida=0""",
                         (pue, nodo, st.get("puerta"), el_txt, st.get("up"), time.time()))
+        self.evento_puerta(pue)
         if el is not None and (fila is None or fila[1] or fila[0] != el_txt):
             return pue, el
         return None
+
+    def evento_puerta(self, pue):
+        row = self.db.execute("SELECT nodo,puerta,el,up,actualizado,caida FROM puertas WHERE pue=?", (pue,)).fetchone()
+        if row:
+            nodo, estado, el, up, at, offline = row
+            uid = uid_de("door", pue, nodo, at, offline)
+            self._outbox(uid, "puerta", dict(uid=uid, nodo=nodo, pue=pue, puerta=estado,
+                         el=json.loads(el) if el else None, up=up, t=at, offline=bool(offline)))
 
     def tocar_puertas(self, nodo):
         self.db.execute("UPDATE puertas SET actualizado=? WHERE nodo=? AND caida=0", (time.time(), nodo))
@@ -169,7 +179,8 @@ class Almacen:
         nuevas = []
         for pue, nodo, act in self.db.execute(
                 "SELECT pue,nodo,actualizado FROM puertas WHERE caida=0 AND actualizado<?", (ahora - SIN_DATOS_S,)).fetchall():
-            self.db.execute("UPDATE puertas SET caida=1 WHERE pue=?", (pue,))
+            self.db.execute("UPDATE puertas SET caida=1,actualizado=? WHERE pue=?", (ahora,pue))
+            self.evento_puerta(pue)
             det = f"Puerta {pue} sin comunicacion"
             uid = uid_de("al", nodo, "Puertas", round(act), det)
             self.db.execute("INSERT OR IGNORE INTO alarmas(uid,nodo,sistema,sev,reconocida,t,detalle) VALUES(?,?,?,?,?,?,?)",
