@@ -54,7 +54,7 @@ de restauración separado antes del corte. No eliminar originales ni volúmenes.
 ## Evidencia y límites
 
 Pruebas originales: edge/test_{puertas,pantalla,puente_pantalla,reliability,v2}.py;
-backend ContractTest y V2Test, scripts/smoke-stack.py; Playwright web.
+backend ContractTest, scripts/smoke-stack.py; Playwright web.
 Firmware disponible: únicamente protocol_probe (diagnóstico, sin GPIO/relés).
 No están los sketches operativos de ESP32/puertas/Minima. Sin pruebas físicas
 no se habilitan ORDEN ni REINICIO, ni se promete confirmación de actuación.
