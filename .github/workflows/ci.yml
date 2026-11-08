@@ -1,0 +1,51 @@
+name: Architecture migration
+on:
+  push:
+    branches: [main, feat/architecture-migration]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  backend-edge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m unittest discover -s edge -v
+      - run: scripts/test-backend.sh
+  stack-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm, cache-dependency-path: web/package-lock.json}
+      - run: npm ci --prefix web
+      - run: npm run build --prefix web
+      - run: python3 scripts/init-env.py
+      - run: docker compose up -d --build
+      - run: python3 scripts/smoke-stack.py
+      - run: npx --prefix web playwright install --with-deps chromium
+      - run: npm test --prefix web
+      - if: always()
+        run: docker compose down
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm, cache-dependency-path: mobile/package-lock.json}
+      - run: npm ci --prefix mobile
+      - run: cd mobile && npx expo install --check
+      - run: npm audit --prefix mobile --audit-level=high
+      - run: npm run export --prefix mobile
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - run: arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+      - run: arduino-cli core install arduino:renesas_uno
+      - run: arduino-cli core install esp32:esp32 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+      - run: scripts/compile-firmware.sh

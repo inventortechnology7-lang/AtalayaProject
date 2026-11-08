@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Atalaya",
+    "slug": "atalaya-laptop",
+    "version": "1.0.0",
+    "ios": {
+      "bundleIdentifier": "technology.inventor.atalaya"
+    },
+    "android": {
+      "package": "technology.inventor.atalaya"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}

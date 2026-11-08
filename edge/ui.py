@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""Gestor web local de Katana (solo lectura, con login). Puerto UI_PUERTO (def. 8080).
+Usuarios: auth.py (usuarios.db, scrypt). Crear el primero: python3 crear_usuario.py"""
+import json, os, secrets, sqlite3, sys, time, urllib.parse
+from http.cookies import SimpleCookie
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+BASE = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE))      # el servicio corre con python3 -I
+import auth  # noqa: E402
+ENV = dict(os.environ)
+if (BASE / ".env").exists():
+    for l in (BASE / ".env").read_text().splitlines():
+        if "=" in l and not l.startswith("#"):
+            k, v = l.split("=", 1)
+            ENV.setdefault(k.strip(), v.strip())
+DB = ENV.get("DB_RUTA", str(BASE / "katana.db"))
+PUERTO = int(ENV.get("UI_PUERTO", "8080"))
+CONDO = ENV.get("CONDOMINIO", "Las Palmas")
+SESION_S = 12 * 3600
+SESIONES = {}   # token -> (usuario, vence)
+
+
+def estado():
+    if not Path(DB).exists():
+        return dict(condominio=CONDO, ahora=time.time(), nodos=[], alarmas=[], logs=[], pendientes=0, ultimo_envio=None, muestras=[], historial=[])
+    c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=3)
+    c.row_factory = sqlite3.Row
+    q = lambda s, *a: [dict(r) for r in c.execute(s, a)]
+    d = dict(
+        condominio=CONDO, ahora=time.time(),
+        nodos=q("SELECT nodo,direccion,sistemas,conectado,ultimo_contacto FROM nodos ORDER BY nodo"),
+        alarmas=q("SELECT sistema,sev,reconocida,t,detalle FROM alarmas WHERE abierta=1 ORDER BY sev DESC,t DESC LIMIT 200"),
+        logs=q("SELECT t,sev,sistema,msg FROM logs ORDER BY rowid DESC LIMIT 100"),
+        historial=q("SELECT sistema,sev,t,detalle,cerrada_en FROM alarmas WHERE abierta=0 ORDER BY cerrada_en DESC LIMIT 100"),
+        pendientes=c.execute("SELECT COUNT(*) FROM outbox WHERE enviado IS NULL").fetchone()[0],
+        ultimo_envio=c.execute("SELECT MAX(enviado) FROM outbox WHERE enviado>0").fetchone()[0],
+        puertas=q("SELECT pue,nodo,puerta,el,up,actualizado,caida FROM puertas ORDER BY pue") if c.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='puertas'").fetchone() else [],
+        logs_puertas=q("SELECT t,sev,msg FROM logs WHERE sistema='Puertas' ORDER BY rowid DESC LIMIT 60"),
+        ordenes=[dict(o, origen=org) for org, t in (("aplicativo", "ordenes_aplicativo"), ("web", "ordenes_web"))
+                 if c.execute("SELECT 1 FROM sqlite_master WHERE name=?", (t,)).fetchone()
+                 for o in q(f"SELECT id,destino,accion,linea,recibida,estado,resultado FROM {t} ORDER BY recibida DESC LIMIT 30")],
+        muestras=q("""SELECT m.sistema,m.magnitud,m.valor,m.unidad,m.recibido FROM muestras m
+                      JOIN (SELECT sistema s,magnitud g,MAX(rowid) r FROM muestras GROUP BY sistema,magnitud) u
+                      ON m.rowid=u.r ORDER BY m.sistema,m.magnitud"""),
+    )
+    c.close()
+    return d
+
+
+HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Inventor Technology · Katana</title>
+<style>
+:root{--bg:#0d0b1f;--card:#1b1832;--bd:#2c2850;--tx:#eeeeee;--mu:#9a96b8;--ac:#aa3bff;--bt:#8a3ff2;--ok:#4cd387;--wa:#f0b43c;--er:#ff6b78;--off:#7c7898}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--bd)}
+header svg{width:44px;height:28px;flex:none}header b{font-size:17px}header .mu{font-size:13px}
+.modo{margin-left:auto;font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--ac);color:var(--ac);white-space:nowrap}
+main{max-width:1000px;margin:0 auto;padding:16px}
+.banner{border-radius:14px;padding:16px 18px;margin-bottom:14px;border:1px solid currentColor;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.banner .big{font-size:22px;font-weight:700}.banner .dot{width:14px;height:14px;border-radius:50%;background:currentColor;box-shadow:0 0 12px currentColor}
+.ok{color:var(--ok)}.wa{color:var(--wa)}.er{color:var(--er)}.off{color:var(--off)}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--mu);margin:22px 0 8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px 14px}
+.row{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.mu{color:var(--mu);font-size:13px}.pill{font-size:12px;padding:1px 9px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
+.sis h3{margin:0;font-size:16px}.lect{display:flex;justify-content:space-between;border-top:1px solid var(--bd);padding:5px 0;font-size:13px}
+.lect span:last-child{font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-size:13px}td{padding:6px;border-top:1px solid var(--bd);vertical-align:top}
+.vacio{color:var(--mu);font-style:italic;padding:6px 0}
+</style></head><body>
+<header><svg viewBox="0 0 60 36"><defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#3b6bff"/><stop offset=".5" stop-color="#aa3bff"/><stop offset="1" stop-color="#ff3b9a"/></linearGradient></defs>
+<path d="M30 18C24 6 8 4 6 18s18 14 24 0 24-12 24 0-18 14-24 0z" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/></svg>
+<div><b>Inventor Technology</b><div class="mu" id="sub">Condominio · Proyecto Atalaya</div></div><span class="modo">Servidor local Katana</span><a class="mu" href="salir" style="margin-left:10px">Salir</a></header>
+<main>
+<div class="banner off" id="ban"><span class="dot"></span><div><div class="big" id="bt">Cargando…</div><div class="mu" id="bs"></div></div></div>
+<h2>Puertas</h2><div class="grid" id="puertas"></div>
+<h2>Órdenes remotas (web / aplicativo)</h2><div class="card"><table id="ordenes"></table></div>
+<h2>Sistemas</h2><div class="grid" id="sis"></div>
+<h2>Alarmas activas</h2><div id="alarmas"></div>
+<h2>Historial de alarmas</h2><div class="card"><table id="hist"></table></div>
+<h2>Nodos conectados</h2><div class="grid" id="nodos"></div>
+<h2>Últimos registros</h2><div class="card"><table id="logs"></table></div>
+</main><script>
+const sevT=['info','aviso','falla','crítica'],sevC=['ok','wa','er','er'];
+const f=t=>t?new Date(t>1e11?t:t*1000).toLocaleString('es-PE'):'—';
+const hace=s=>s<60?Math.round(s)+' s':s<3600?Math.round(s/60)+' min':Math.round(s/3600)+' h';
+const E=(tag,cls,txt)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e};
+const vacio=(b,t)=>b.replaceChildren(E('div','vacio',t));
+const nombres=n=>{try{return JSON.parse(n.sistemas)||[]}catch(e){return[]}};
+function estadoSistema(nom,d){
+ const nodos=d.nodos.filter(n=>nombres(n).includes(nom));
+ const al=d.alarmas.filter(a=>a.sistema===nom);
+ if(!nodos.length)return['off','Sin nodo'];
+ if(!nodos.some(n=>n.conectado))return['off','Sin conexión'];
+ const mx=Math.max(-1,...al.map(a=>+a.sev||0));
+ if(mx>=2)return['er','Falla'];if(mx===1)return['wa','Aviso'];return['ok','Operativo'];
+}
+async function tick(){
+ try{const rs=await fetch('api/estado');if(rs.status===401){location.href='login';return}const d=await rs.json();
+ document.getElementById('sub').textContent='Condominio '+d.condominio+' · Proyecto Atalaya';
+ const noms=[...new Set(d.nodos.flatMap(nombres))];
+ const est=noms.map(n=>estadoSistema(n,d)[0]);
+ let cl='off',tit='Sin nodos conectados',sub='Esperando a los nodos del condominio.';
+ if(noms.length){
+  if(est.includes('er')){cl='er';tit='Hay fallas en el sistema'}
+  else if(est.includes('off')){cl='wa';tit='Parte del sistema sin conexión'}
+  else if(est.includes('wa')){cl='wa';tit='Sistema operativo con avisos'}
+  else{cl='ok';tit='Todo el sistema operativo'}
+  sub=est.filter(x=>x==='ok').length+' de '+est.length+' sistemas operativos · '+d.alarmas.length+' alarmas activas';
+ }
+ const ban=document.getElementById('ban');ban.className='banner '+cl;
+ document.getElementById('bt').textContent=tit;
+ const env=d.pendientes?('Sin enlace con Negra / pendientes por enviar: '+d.pendientes):('Enlace con Negra: al día'+(d.ultimo_envio?' · último envío hace '+hace(d.ahora-d.ultimo_envio):''));
+ document.getElementById('bs').textContent=sub+' · '+env;
+ const P=document.getElementById('puertas'),EST={cerrada:'ok',abierta:'wa',abriendo:'wa',cerrando:'wa',trabada:'er'};
+ if(!d.puertas.length)vacio(P,'Aún no hay puertas. Aparecen cuando el nodo manda su estado.');else P.replaceChildren(...d.puertas.map(x=>{
+  const c=E('div','card sis'),r=E('div','row'),caida=!!x.caida,pc=caida?'er':(EST[x.puerta]||'off');
+  r.append(E('h3',null,'Puerta '+x.pue),E('span','pill '+pc,caida?'sin comunicación':(x.puerta||'—')));c.append(r);
+  let el=[];try{el=JSON.parse(x.el)||[]}catch(e){}
+  ['Sensor 1','Sensor 2','Motor'].forEach((n,i)=>{const l=E('div','lect'),v=caida?1:el[i];
+   l.append(E('span',null,n),E('span',v?'er':(v===0?'ok':'off'),v?'FALLA':(v===0?'OK':'—')));c.append(l)});
+  const al=d.alarmas.filter(a=>(a.detalle||'').startsWith('Puerta '+x.pue));
+  al.forEach(a=>{const s=Math.min(Math.max(+a.sev||0,0),3);c.append(E('div',sevC[s],'⚠ '+a.detalle))});
+  if(!al.length)c.append(E('div','mu','Sin alarmas activas'));
+  c.append(E('div','mu','Nodo '+x.nodo+' · último dato hace '+hace(d.ahora-x.actualizado)));
+  const lg=d.logs_puertas.filter(l=>(l.msg||'').startsWith('Puerta '+x.pue)).slice(0,8);
+  if(lg.length){const t=E('table');lg.forEach(l=>{const tr=E('tr'),s=Math.min(Math.max(+l.sev||0,0),3);
+   tr.append(E('td','mu',f(l.t)),E('td',sevC[s],l.msg));t.append(tr)});c.append(t)}
+  return c}));
+ const S=document.getElementById('sis');
+ if(!noms.length)vacio(S,'Aún no hay sistemas. Aparecerán cuando se conecten los nodos.');
+ else S.replaceChildren(...noms.map(n=>{
+  const [c,t]=estadoSistema(n,d),card=E('div','card sis'),r=E('div','row');
+  r.append(E('h3',null,n),E('span','pill '+c,t));card.append(r);
+  const al=d.alarmas.filter(a=>a.sistema===n);
+  card.append(E('div','mu',al.length?al.length+' alarma(s) activa(s)':'Sin alarmas'));
+  d.muestras.filter(m=>m.sistema===n).forEach(m=>{const l=E('div','lect');l.append(E('span',null,m.magnitud.replaceAll('_',' ')),E('span',null,m.valor+' '+(m.unidad||'')));card.append(l)});
+  return card}));
+ const A=document.getElementById('alarmas');
+ if(!d.alarmas.length)vacio(A,'Sin alarmas activas.');else A.replaceChildren(...d.alarmas.map(x=>{
+  const c=E('div','card'),r=E('div','row'),s=Math.min(Math.max(+x.sev||0,0),3);c.style.marginBottom='8px';
+  r.append(E('b',null,x.sistema+': '+(x.detalle||'')),E('span','pill '+sevC[s],sevT[s]+(x.reconocida?' · reconocida':'')));
+  c.append(r,E('div','mu',f(x.t)));return c}));
+ const H=document.getElementById('hist');
+ if(!d.historial.length)H.replaceChildren(E('tr','vacio'));else H.replaceChildren(...d.historial.map(x=>{
+  const tr=E('tr'),sv=Math.min(Math.max(+x.sev||0,0),3);
+  tr.append(E('td','mu',f(x.t)+' → '+f(x.cerrada_en)),E('td',sevC[sv],sevT[sv]),E('td',null,x.sistema||''),E('td',null,x.detalle||''));return tr}));
+ const N=document.getElementById('nodos');
+ if(!d.nodos.length)vacio(N,'Ningún nodo se ha conectado todavía.');else N.replaceChildren(...d.nodos.map(x=>{
+  const c=E('div','card'),r=E('div','row');
+  r.append(E('b',null,nombres(x).join(', ')||x.nodo),E('span','pill '+(x.conectado?'ok':'er'),x.conectado?'conectado':'desconectado'));
+  c.append(r,E('div','mu',x.direccion+' · último contacto hace '+hace(d.ahora-x.ultimo_contacto)));return c}));
+ const O=document.getElementById('ordenes'),ords=(d.ordenes||[]).sort((a,b)=>b.recibida-a.recibida).slice(0,30);
+ if(!ords.length)O.replaceChildren(E('tr','vacio'));else O.replaceChildren(...ords.map(x=>{const tr=E('tr');
+  tr.append(E('td','mu',f(x.recibida)),E('td',null,x.origen),E('td',null,(x.destino||'')+' · '+(x.linea||'')),E('td',x.estado==='entregada'?'ok':x.estado==='pendiente'?'wa':'er',x.estado),E('td','mu',x.resultado||''));return tr}));
+ const L=document.getElementById('logs');
+ if(!d.logs.length)L.replaceChildren(E('tr','vacio'));else L.replaceChildren(...d.logs.map(x=>{
+  const tr=E('tr'),s=Math.min(Math.max(+x.sev||0,0),3);
+  tr.append(E('td','mu',f(x.t)),E('td',sevC[s],sevT[s]),E('td',null,x.sistema||''),E('td',null,x.msg||''));return tr}));
+ }catch(e){const b=document.getElementById('ban');b.className='banner off';document.getElementById('bt').textContent='Sin respuesta del servidor local';document.getElementById('bs').textContent=''}
+}
+tick();setInterval(tick,2000);
+</script></body></html>"""
+
+
+LOGIN = """<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Katana · Ingresar</title><style>body{margin:0;background:#0d0b1f;color:#eee;font:15px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}
+form{background:#1b1832;border:1px solid #2c2850;border-radius:16px;padding:28px 32px;display:grid;gap:10px;width:min(340px,90vw)}
+input,button{font:inherit;padding:10px;border-radius:8px;border:1px solid #2c2850;background:#0d0b1f;color:#eee}
+button{background:#8a3ff2;border:0;cursor:pointer}.er{color:#ff6b78;min-height:1.2em}</style></head><body>
+<form method="post" action="login"><b>Inventor Technology · Katana</b><span>Gestor local del condominio</span>
+<input name="correo" type="email" placeholder="Correo" required autofocus><input name="clave" type="password" placeholder="Clave" required>
+<button>Ingresar</button><div class="er">MSG</div></form></body></html>"""
+
+
+def nueva_sesion(usuario):
+    tok = secrets.token_urlsafe(32)
+    SESIONES[tok] = (usuario, time.time() + SESION_S)
+    return tok
+
+
+def sesion(cabecera):
+    if not cabecera:
+        return None
+    c = SimpleCookie(); c.load(cabecera)
+    tok = c["k_ses"].value if "k_ses" in c else None
+    s = SESIONES.get(tok)
+    if not s or s[1] < time.time():
+        SESIONES.pop(tok, None); return None
+    return s[0]
+
+
+class H(BaseHTTPRequestHandler):
+    def _resp(self, cod, body=b"", tipo="text/plain", extra=()):
+        self.send_response(cod)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in extra:
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _login(self, msg=""):
+        self._resp(200, LOGIN.replace("MSG", msg).encode(), "text/html; charset=utf-8")
+
+    def do_POST(self):
+        if self.path.split("?")[0] != "/login":
+            return self._resp(404, b"No encontrado")
+        n = min(int(self.headers.get("Content-Length") or 0), 4096)
+        f = urllib.parse.parse_qs(self.rfile.read(n).decode("utf-8", "replace"))
+        ok, r = auth.verificar((f.get("correo") or [""])[0], (f.get("clave") or [""])[0])
+        if not ok:
+            return self._login(r)
+        tok = nueva_sesion(r)
+        self._resp(303, extra=[("Location", "./"),
+                               ("Set-Cookie", f"k_ses={tok}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESION_S}")])
+
+    def do_GET(self):
+        ruta = self.path.split("?")[0]
+        if ruta == "/login":
+            return self._login("" if auth.hay_usuarios() else "No hay usuarios: créalo con python3 crear_usuario.py")
+        usuario = sesion(self.headers.get("Cookie"))
+        if ruta == "/salir":
+            c = SimpleCookie(); c.load(self.headers.get("Cookie") or "")
+            if "k_ses" in c: SESIONES.pop(c["k_ses"].value, None)
+            return self._resp(303, extra=[("Location", "login"), ("Set-Cookie", "k_ses=; Max-Age=0; Path=/")])
+        if not usuario:
+            if ruta == "/api/estado":
+                return self._resp(401, b'{"error":"login"}', "application/json")
+            return self._resp(303, extra=[("Location", "login")])
+        if ruta == "/api/estado":
+            try:
+                body, tipo, cod = json.dumps(estado()).encode(), "application/json", 200
+            except Exception as e:
+                body, tipo, cod = json.dumps({"error": str(e)}).encode(), "application/json", 500
+        elif self.path.split("?")[0] in ("/", "/index.html"):
+            body, tipo, cod = HTML.encode(), "text/html; charset=utf-8", 200
+        else:
+            body, tipo, cod = b"No encontrado", "text/plain", 404
+        self._resp(cod, body, tipo)
+
+    def log_message(self, *a):
+        pass
+
+
+if __name__ == "__main__":
+    print(f"UI local en :{PUERTO}", flush=True)
+    ThreadingHTTPServer(("0.0.0.0", PUERTO), H).serve_forever()
