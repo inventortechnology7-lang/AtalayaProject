@@ -26,7 +26,7 @@ public class Notifications {
  @Scheduled(fixedDelay=30000) void deliver(){
   if(!enabled)return;
   db.update("INSERT INTO push_deliveries(notification_id,token) SELECT n.id,t.token FROM notifications n JOIN account a ON a.condo=n.condo JOIN push_tokens t ON t.email=a.email AND t.active WHERE n.created>=t.registered AND n.created>now()-interval '24 hours' ON CONFLICT DO NOTHING");
-  for(var r:db.queryForList("SELECT p.*,n.payload::text FROM push_deliveries p JOIN notifications n ON n.id=p.notification_id JOIN push_tokens t ON t.token=p.token AND t.active WHERE p.status IN ('pending','ticket') AND p.next_attempt<=now() AND p.attempts<8 LIMIT 20")){
+  for(var r:db.queryForList("SELECT p.*,n.payload::text FROM push_deliveries p JOIN notifications n ON n.id=p.notification_id JOIN push_tokens t ON t.token=p.token AND t.active JOIN account a ON a.email=t.email AND a.condo=n.condo WHERE p.status IN ('pending','ticket') AND p.next_attempt<=now() AND p.attempts<8 LIMIT 20")){
    Object id=r.get("notification_id"),token=r.get("token");boolean receipt="ticket".equals(r.get("status"));
    db.update("UPDATE push_deliveries SET attempts=attempts+1,next_attempt=now()+interval '5 minutes' WHERE notification_id=? AND token=?",id,token);
    try{

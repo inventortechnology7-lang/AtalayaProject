@@ -41,24 +41,44 @@ def node():
     f=sock.makefile('rwb');f.write(('TOKEN '+env['PLACA_TOKEN']+'\n').encode());f.flush()
     assert f.readline().startswith(b'HORA ')
     send(f,{'cfg':{'cor':['Puertas']}})
-    send(f,{'st':{'pue':'A','puerta':'diagnostico','el':[0,0,0],'al':[]}})
+    send(f,{'st':{'pue':'A','puerta':'cerrada','el':[0,0,0],'al':[]}})
     return sock,f
 
 def send(f,payload):f.write(json.dumps(payload).encode()+b'\n');f.flush()
 
+# Refuse hardware-facing bindings before any command test.
+config=json.loads(subprocess.check_output(['docker','compose','config','--format','json'],cwd=ROOT))
+assert all(p.get('host_ip') in ('127.0.0.1','::1') for p in config['services']['edge']['ports']), 'Simulation requires loopback-only edge ports'
 until(lambda:api('/health'))
 admin=api('/api/login',{'correo':env['ADMIN_EMAIL'],'clave':env['ADMIN_PASSWORD']})['token']
 first='smoke-'+uuid.uuid4().hex
 sock,f=node()
 send(f,{'log':{'t':time.time(),'v':0,'s':'Puertas','m':first}})
 until(lambda:any(r['mensaje']==first for r in api('/api/dashboard',token=admin)['logs']))
-api('/api/comandos',{'destino':'puerta-A','linea':'ORDEN','origen':'web'},admin)
+until(lambda:any(d['id']=='A' and d['state']=='cerrada' for d in api('/api/doors',token=admin)))
+# Establish validation only for this loopback socket, then revoke in all cases.
+api('/api/doors/A/safety',{'validated':False,'evidence':'Starting isolated simulation'},admin)
+command={'destino':'puerta-A','linea':'ORDEN','origen':'web','confirmed':True,'reason':'Loopback test client only'}
+try:
+    api('/api/comandos',command,admin)
+    raise AssertionError('Unvalidated door accepted command')
+except urllib.error.HTTPError as e: assert e.code==409
+api('/api/doors/A/safety',{'validated':True,'evidence':'SIMULATION ONLY: loopback TCP client, no hardware'},admin)
+try:
+    api('/api/comandos',command,admin)
+finally:
+    api('/api/doors/A/safety',{'validated':False,'evidence':'Simulation finished; physical validation remains pending'},admin)
 sock.settimeout(20)
 for _ in range(5):
     line=f.readline()
     if line==b'ORDEN\n':break
 else:raise AssertionError('Physical command did not reach test TCP client')
-print('PASS TCP ingestion, authenticated sync and SSE command delivery')
+print('PASS TCP ingestion, authenticated sync, safety gate and SSE command delivery to simulation')
+send(f,{'st':{'pue':'B','puerta':'trabada','el':[0,0,1],'al':[[0,2,0,time.time(),'Puerta B: motor simulado']]}})
+until(lambda:any(d['id']=='B' and d['reported_state']=='trabada' for d in api('/api/doors',token=admin)))
+until(lambda:any('motor simulado' in json.loads(n['payload']).get('detalle','') for n in api('/api/notifications',token=admin)))
+assert any(d['id']=='A' for d in api('/api/doors',token=admin))
+print('PASS independent A/B state and persistent alarm notification')
 second='offline-'+uuid.uuid4().hex
 try:
     compose('stop','backend')

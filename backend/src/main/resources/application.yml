@@ -13,6 +13,8 @@ server:
   tomcat:
     max-http-form-post-size: 1MB
 atalaya:
+  push-enabled: ${ATALAYA_PUSH_ENABLED:false}
+  contact-retention-days: ${ATALAYA_CONTACT_RETENTION_DAYS:0}
   admin-email: ${ADMIN_EMAIL}
   admin-password: ${ADMIN_PASSWORD}
   edge-email: ${SYNC_USUARIO}

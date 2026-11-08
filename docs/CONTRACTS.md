@@ -31,3 +31,27 @@ Solo HTTP 200 confirma lote. 400 separa registro inválido, 401 renueva login,
 El contrato original de comandos carece de ACK físico: entregar por TCP no prueba
 movimiento, y la ventana entre consumo HTTP y persistencia local puede perder una
 orden. No se debe prometer exactamente una ejecución ni reintentar órdenes antiguas.
+
+## V2: puertas, revisión y notificaciones
+El lote acepta además `puertas: [{uid,pue,nodo,puerta,el,up,t,offline}]`.
+`pue` solo admite A/B; `t` es ISO UTC de observación en Katana. `el` conserva
+los indicadores de falla del protocolo, sin traducirlos a posición segura.
+El backend conserva estados desconocidos como `desconocida`, deriva pérdida de enlace
+y nunca usa un reporte antiguo para sustituir el estado actual.
+
+Consultas ADMIN/VIEWER: `/api/doors`, `/api/alarms`, `/api/logs?page=&size=&door=&kind=&severity=`,
+`/api/history`, `/api/notifications`. Lectura de notificación:
+POST `/api/notifications/{id}/read`. ADMIN reconoce alarmas con
+POST `/api/alarms/{uid}/ack` y consulta `/api/audit`.
+La revisión física se registra en POST `/api/doors/{A|B}/safety` con
+`{validated,evidence}`; un cambio de nodo revoca la validación.
+
+POST `/api/comandos` añade `confirmed:true` y `reason` a destino/linea/origen.
+No es una cola de recuperación: requiere conectividad y estado reciente, caduca en
+30 segundos y no admite maniobras repetidas en menos de 60 segundos.
+La recuperación eléctrica automática permanece deshabilitada.
+
+Expo: POST `/api/push-token` y `/api/push-token/remove` con `{token}`.
+Solo notificaciones posteriores al registro y de las últimas 24 horas son candidatas.
+Configurar `ATALAYA_PUSH_ENABLED=true` únicamente tras preparar EAS/APNs/FCM y
+validar un dispositivo. El estado `provider_accepted` no confirma visualización.
