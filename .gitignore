@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+*.sock
+__pycache__/
+*.pyc
+node_modules/
+dist/
+target/
+.expo/
+coverage/
