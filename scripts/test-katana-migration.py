@@ -31,6 +31,17 @@ try:
         print('Legacy PostgreSQL archive restored successfully in isolated database.')
     sql((root/'backend/src/main/resources/db/katana/V1__katana_local.sql').read_text())
     statement,counts=migration.plan(backup)
+    if not args.backup:
+        sql('CREATE DATABASE rollback_test;')
+        sql((root/'backend/src/main/resources/db/katana/V1__katana_local.sql').read_text(),'rollback_test')
+        try:
+            sql(statement.replace(',12.3,',",'NaN',"),'rollback_test')
+            raise AssertionError('Invalid telemetry accepted')
+        except subprocess.CalledProcessError:
+            pass
+        assert sql('SELECT count(*) FROM devices','rollback_test')=='0'
+        assert sql('SELECT count(*) FROM alarms','rollback_test')=='0'
+        assert sql('SELECT count(*) FROM import_runs','rollback_test')=='0'
     sql(statement)
     tables=['devices','doors','door_status','alarms','alarm_history','system_logs','telemetry_samples','users','legacy_records','import_runs']
     def snapshot():

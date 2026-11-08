@@ -49,7 +49,7 @@ def plan(backup):
         sources[name] = (digest, data)
     sql = ["\\set ON_ERROR_STOP on", 'BEGIN;', 'SET LOCAL standard_conforming_strings = on;',
            "SELECT pg_advisory_xact_lock(8300,1);",
-           "DO $$ BEGIN IF EXISTS(SELECT 1 FROM device_connections) OR EXISTS(SELECT 1 FROM sessions) THEN RAISE EXCEPTION 'Import requires an unused offline target'; END IF; END $$;"]
+           "DO $$ BEGIN IF EXISTS(SELECT 1 FROM device_connections) OR EXISTS(SELECT 1 FROM sessions) THEN RAISE EXCEPTION 'Import requires an unused offline target'; END IF; IF NOT EXISTS(SELECT 1 FROM import_runs) AND (EXISTS(SELECT 1 FROM devices) OR EXISTS(SELECT 1 FROM users) OR EXISTS(SELECT 1 FROM audit_logs) OR EXISTS(SELECT 1 FROM legacy_records)) THEN RAISE EXCEPTION 'Initial import requires an empty target'; END IF; END $$;"]
     fallback = dt.datetime.fromtimestamp((backup/'katana.db').stat().st_mtime,dt.timezone.utc).isoformat()
     def insert(table, values, conflict='ON CONFLICT DO NOTHING'):
         sql.append(f"INSERT INTO {table} ({','.join(values)}) VALUES ({','.join(literal(v) for v in values.values())}) {conflict};")
