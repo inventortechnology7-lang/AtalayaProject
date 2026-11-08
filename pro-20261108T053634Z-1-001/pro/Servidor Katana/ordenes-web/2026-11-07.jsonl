@@ -1,0 +1,7 @@
+{"id": 1, "destino": "puerta-A", "accion": "reinicio", "origen": "web", "linea": "REINICIO", "recibida": "2026-11-07 23:20:02"}
+{"id": 2, "destino": "puerta-A", "accion": "reinicio", "origen": "web", "linea": "REINICIO", "recibida": "2026-11-07 23:20:02"}
+{"id": 3, "destino": "puerta-A", "accion": "orden", "origen": "web", "linea": "ORDEN", "recibida": "2026-11-07 23:20:02"}
+{"id": 4, "destino": "puerta-A", "accion": "reinicio", "origen": "web", "linea": "REINICIO", "recibida": "2026-11-07 23:20:28"}
+{"id": 5, "destino": "puerta-A", "accion": "reinicio", "origen": "web", "linea": "REINICIO", "recibida": "2026-11-07 23:20:41"}
+{"id": 6, "destino": "puerta-A", "accion": "reinicio", "origen": "web", "linea": "REINICIO", "recibida": "2026-11-07 23:22:21"}
+{"id": 9, "destino": "puerta-A", "accion": "reinicio-total", "origen": "web", "linea": "REINICIO_TOTAL", "recibida": "2026-11-07 23:47:24"}
