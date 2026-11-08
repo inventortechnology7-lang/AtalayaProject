@@ -1,0 +1,23 @@
+import {test,expect} from '@playwright/test';
+import {readFileSync} from 'node:fs';
+const env=Object.fromEntries(readFileSync(new URL('../../.env',import.meta.url),'utf8').split('\n').filter(l=>l.includes('=')&&!l.startsWith('#')).map(l=>{const i=l.indexOf('=');return[l.slice(0,i),l.slice(i+1)];}));
+for(const width of [1280,390])test(`login, live telemetry and logout at ${width}px`,async({page})=>{
+ await page.setViewportSize({width,height:900});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');
+ await page.getByLabel('Correo',{exact:true}).fill(env.ADMIN_EMAIL);
+ await page.getByLabel('Contraseña',{exact:true}).fill(env.ADMIN_PASSWORD);
+ await page.getByRole('button',{name:'Ingresar',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Vista general'})).toBeVisible();
+ await expect(page.getByText('Conectado',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Actividad',exact:true}).click();
+ await expect(page.getByRole('cell').filter({hasText:'offline-'}).first()).toBeVisible();
+ await expect(page.getByRole('button',{name:'Enviar orden'}).first()).toBeEnabled();
+ page.once('dialog',dialog=>dialog.dismiss());
+ await page.getByRole('button',{name:'Enviar orden'}).first().click();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+ await page.screenshot({path:`test-results/dashboard-${width}.png`,fullPage:true});
+ await page.getByRole('button',{name:'Cerrar sesión'}).click();
+ await expect(page.getByRole('heading',{name:'Acceso al sistema'})).toBeVisible();
+ expect(errors).toEqual([]);
+});
