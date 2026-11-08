@@ -16,6 +16,8 @@ services:
   backend:
     build: ./backend
     environment:
+      ATALAYA_PUSH_ENABLED: ${ATALAYA_PUSH_ENABLED:-false}
+      ATALAYA_CONTACT_RETENTION_DAYS: ${ATALAYA_CONTACT_RETENTION_DAYS:-0}
       DB_URL: jdbc:postgresql://postgres:5432/atalaya
       DB_PASSWORD: ${DB_PASSWORD:?required}
       ADMIN_EMAIL: ${ADMIN_EMAIL:?required}

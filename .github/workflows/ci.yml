@@ -1,7 +1,7 @@
-name: Architecture migration
+name: ATALAYA validation
 on:
   push:
-    branches: [main, feat/architecture-migration]
+    branches: [main, feat/architecture-migration, feat/atalaya-door-monitoring-v2]
   pull_request:
     branches: [main]
 permissions:
@@ -28,6 +28,12 @@ jobs:
       - run: python3 scripts/smoke-stack.py
       - run: npx --prefix web playwright install --with-deps chromium
       - run: npm test --prefix web
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-evidence
+          path: web/test-results/
+          retention-days: 7
       - if: always()
         run: docker compose down
   mobile:

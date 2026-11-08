@@ -20,3 +20,11 @@ hardware y los límites de producción están en OPERATIONS.md y firmware/README
 No se prueba aquí el servidor Negra remoto, dispositivos ESP32/R4/Minima conectados,
 actuadores, WiFi real, firewall de Katana ni restauración de backups de producción.
 La prueba de pérdida de backend no simula corrupción de disco o apagado eléctrico.
+
+## V2 — continuación de la rama feat/atalaya-door-monitoring-v2
+Ver registro actualizado y límites en [V2-PROGRESS.md](V2-PROGRESS.md).
+Pruebas actuales: 27 edge, 7 Spring/PostgreSQL, integración con corte del backend
+y reinicio edge, TypeScript estricto y builds web/Android/iOS, Playwright a 1280/390 px.
+La integración rechaza bindings TCP externos antes de crear el nodo simulado,
+comprueba que la orden sin validación es rechazada y revoca la validación simulada.
+Playwright solo consulta y verifica controles bloqueados: no envía maniobras.
