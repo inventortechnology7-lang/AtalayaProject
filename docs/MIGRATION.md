@@ -12,7 +12,7 @@ se conservan; no se presentan como pruebas de esta migración. Suite inicial: 11
 Migración incremental: Katana mantiene SQLite/WAL, TCP y puente USB para operar
 sin PostgreSQL, red WAN ni backend. Spring Boot + PostgreSQL implementan el contrato
 HTTP de Negra y APIs de consulta autenticadas para React y React Native.
-El original queda archivado sin modificaciones. El runtime edge se copia a edge/.
+El código original queda archivado; se vació el token versionado de token.env. El runtime edge se copia a edge/.
 No se sustituye el firmware instalado ni se energizan actuadores durante pruebas.
 
 ## Fases y aceptación
@@ -29,3 +29,16 @@ se verifican en hardware separado. Una compilación o simulación no prueba esos
 Los contratos HTTP se deducen del cliente original: el servidor Negra externo y su
 documento SINCRONIZACION.md no están incluidos. No se afirma paridad con endpoints
 externos no presentes en este repositorio.
+
+## Estado implementado
+Fases 1–5 implementadas en commits incrementales: backend compatible, edge offline,
+gestor local autenticado, clientes web/móvil, contenedores, sonda de firmware,
+importador histórico en solo lectura y CI. Ver VALIDATION.md para resultados.
+No se presenta como validación de producción: quedan banco físico, APK/IPA,
+Negra remoto, rotación del token histórico y criterios adicionales del prompt original
+(no disponible en este checkout). El PR se abre en borrador para revisión, sin merge.
+
+Referencias de implementación: documentación oficial de Spring Boot
+https://docs.spring.io/spring-boot/3.5/system-requirements.html y Expo
+https://docs.expo.dev/versions/latest/; la compatibilidad final móvil se comprobó
+con `expo install --check` sobre las versiones del lockfile.
