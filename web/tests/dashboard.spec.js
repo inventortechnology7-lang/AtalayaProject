@@ -10,11 +10,12 @@ for(const width of [1280,390])test(`login, live telemetry and logout at ${width}
  await page.getByRole('button',{name:'Ingresar',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Vista general'})).toBeVisible();
  await expect(page.getByText('Conectado',{exact:true})).toBeVisible();
- await page.getByRole('button',{name:'Actividad',exact:true}).click();
+ await page.getByRole('button',{name:'Logs',exact:true}).click();
  await expect(page.getByRole('cell').filter({hasText:'offline-'}).first()).toBeVisible();
- await expect(page.getByRole('button',{name:'Enviar orden'}).first()).toBeEnabled();
- page.once('dialog',dialog=>dialog.dismiss());
- await page.getByRole('button',{name:'Enviar orden'}).first().click();
+ await page.getByRole('button',{name:'Control',exact:true}).click();
+ await expect(page.getByRole('button',{name:'ORDEN',exact:true}).first()).toBeDisabled();
+ await page.getByRole('button',{name:'Notificaciones',exact:true}).click();
+ await expect(page.getByRole('cell').filter({hasText:'motor simulado'}).first()).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
  await page.screenshot({path:`test-results/dashboard-${width}.png`,fullPage:true});
  await page.getByRole('button',{name:'Cerrar sesión'}).click();

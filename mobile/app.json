@@ -10,7 +10,8 @@
       "package": "technology.inventor.atalaya"
     },
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-notifications"
     ]
   }
 }
