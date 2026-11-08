@@ -51,6 +51,7 @@ class SecurityConfig {
 public class Auth {
  public record User(String email,String role,long condo) {}
  record Login(@NotBlank @Size(max=254) String correo,@NotBlank @Size(max=72) String clave) {}
+ private volatile boolean ready;
  private final JdbcTemplate db;
  private final BCryptPasswordEncoder encoder=new BCryptPasswordEncoder(12);
  private final Map<String,Attempt> attempts=new ConcurrentHashMap<>();
@@ -62,6 +63,7 @@ public class Auth {
    if(admin.equals(edge)||password.length()<16||edgePassword.length()<16||condo<1) throw new IllegalArgumentException("Use distinct accounts and passwords of at least 16 characters");
    for(var a:List.of(new String[]{admin,password,"ADMIN"},new String[]{edge,edgePassword,"EDGE"}))
     db.update("INSERT INTO account VALUES(?,?,?,?) ON CONFLICT(email) DO NOTHING",a[0],encoder.encode(a[1]),a[2],condo);
+   ready=true;
   };
  }
  static String hash(String raw){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(raw.getBytes(StandardCharsets.UTF_8)));}catch(NoSuchAlgorithmException e){throw new IllegalStateException(e);}}
@@ -85,5 +87,5 @@ public class Auth {
  }
  @PostMapping("/api/logout") void logout(@RequestHeader("Authorization") String header){db.update("DELETE FROM session_token WHERE hash=?",hash(header.substring(7)));}
  @GetMapping("/api/me") User me(){return user();}
- @GetMapping("/health") Map<String,String> health(){db.queryForObject("SELECT 1",Integer.class);return Map.of("status","UP");}
+ @GetMapping("/health") Map<String,String> health(){if(!ready)throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);db.queryForObject("SELECT 1",Integer.class);return Map.of("status","UP");}
 }

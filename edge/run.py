@@ -6,12 +6,20 @@ import sys
 import time
 from pathlib import Path
 import receptor
+import auth
 
 if not receptor.TOKEN:
     raise SystemExit('PLACA_TOKEN is required')
 Path(receptor.DB_RUTA).parent.mkdir(parents=True, exist_ok=True)
 receptor.Almacen(receptor.DB_RUTA).db.close()
-children = [subprocess.Popen([sys.executable, '-u', name]) for name in ('receptor.py', 'sync.py', 'ordenes.py')]
+if not auth.hay_usuarios():
+    password = os.environ.get('LOCAL_UI_PASSWORD', '')
+    if len(password) < 16:
+        raise SystemExit('LOCAL_UI_PASSWORD must have at least 16 characters')
+    ok, message = auth.crear(os.environ.get('LOCAL_UI_EMAIL', ''), 'Operador local', 'admin', password)
+    if not ok:
+        raise SystemExit(message)
+children = [subprocess.Popen([sys.executable, '-u', name]) for name in ('receptor.py', 'sync.py', 'ordenes.py', 'ui.py')]
 
 def stop(*args):
     for child in children:

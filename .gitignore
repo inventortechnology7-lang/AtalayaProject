@@ -12,3 +12,6 @@ dist/
 target/
 .expo/
 coverage/
+firmware/**/secrets.h
+web/test-results/
+web/playwright-report/
