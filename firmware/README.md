@@ -20,7 +20,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 firmware/protocol_probe
 ```
 
 No flashear sobre firmware operativo sin respaldo. Para Minima conservar el
-firmware de pantalla existente y ejecutar edge/puente_pantalla.py con pyserial.
+firmware de pantalla existente y ejecutar usb/puente_pantalla.py con pyserial.
 Probar en banco: token incorrecto; reconexión; WiFi sin Katana; mensajes cfg/st;
-EL 30–35; desconexión USB; corte WAN; reinicio eléctrico; consumo del outbox;
-maniobra segura con sensores reales. Registrar placa, versión y resultado.
+EL 30–35; desconexión USB; corte WAN; reinicio eléctrico;
+lectura de sensores reales sin enviar comandos de movimiento. Registrar placa, versión y resultado.
