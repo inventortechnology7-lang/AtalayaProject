@@ -1,68 +1,67 @@
-# Estado de implementación incremental
+# Katana Local: implementación y evidencia
 
-El adaptador `com.inventor.katana.devices.BoardTcpServer` es una base de transporte
-Java 21 probada independientemente. **Todavía no sustituye el receptor operativo.**
-No se registra como bean ni se abre otro puerto al arrancar el backend existente.
-BoardSink define la frontera de persistencia transaccional pendiente de conectar.
+## Arquitectura activa
 
-- Puerto predeterminado contractual: 8300 (el constructor recibe dirección explícita).
-- TOKEN, HORA, SYNC, límites, autenticación con comparación constante, identidad IP.
-- 128 conexiones como límite inicial; tareas virtuales, cierre ordenado y UUID por conexión.
-- JSON completo validado antes de entregar al servicio de persistencia.
-- No contiene cliente remoto, comandos físicos ni reenvío diferido.
-- La compatibilidad EL/pantalla, persistencia, supervisión offline y clientes siguen
-  siendo requisitos para habilitarlo. No afirmar paridad por estos tests de transporte.
+Spring Boot 3.5 / Java 21 es el único backend. `BoardTcpServer` usa sockets con
+hilos virtuales, autenticación TOKEN, límites de tamaño, deadline por frame y
+UUID por conexión. `PersistentBoardSink` guarda cfg/st/logs/log/m en transacciones
+PostgreSQL. Una conexión sustituida no puede escribir ni desconectar la nueva.
+Flyway aplica exclusivamente `db/katana`. Spring Data JPA administra usuarios;
+JdbcTemplate implementa consultas históricas y transacciones de recepción.
 
-El esquema `db/katana/V1__katana_local.sql` está fuera de la ruta Flyway activa.
-Se destina exclusivamente a una base nueva: no aplicar sobre el volumen central.
-Incluye tablas relacionales requeridas; `legacy_records` preserva evidencia no
-operativa y `import_runs` registra trazabilidad de importación. No existe outbox.
-El importador inicial `scripts/import-katana.py` ya se verificó con el backup real y
-con fixtures sintéticos sobre PostgreSQL 17 aislado. Sólo permite una pareja de
-backups por base y rechaza un destino con sesiones/conexiones: no es un importador
-incremental para producción activa. Se conserva cada UID y se archivan los
-registros originales (sin sal/clave). Falta implementar el restablecimiento de
-usuarios y la integración con el backend nuevo. Las referencias de nodo que sólo
-existen en logs (por ejemplo, katana) se preservan como identidades históricas,
-no como hardware nuevo detectado.
+React/TypeScript, Router y Tailwind proporcionan ocho vistas: resumen, puertas,
+nodos, alarmas, registros, historial, telemetría y usuarios/configuración. React
+Native comparte el contrato `/api/local`. Ningún cliente consulta servicios centrales.
+Los clientes muestran datos de PostgreSQL, nunca rellenan dispositivos inexistentes.
 
-Decisión de transporte: sockets con tareas virtuales de Java 21 simplifican el
-protocolo por líneas sin añadir Netty. Se mantienen límites explícitos de recursos.
-Referencia: https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html
+## Paridad de funciones locales
 
-## Corte y rollback (pendientes de ensayo)
+| Función anterior | Equivalente y comprobación |
+| --- | --- |
+| auth: usuarios, roles, bloqueo, accesos | UserService, AuthService, BCrypt, sesiones revocables y audit_logs; JUnit RBAC y recuperación |
+| ui: acceso y estado local | React, `/auth`, `/dashboard`, `/doors`; Playwright con API real |
+| receptor: TOKEN, HORA, SYNC | BoardTcpServerTest: token inválido, reconexión, deadline, tamaño y frames inválidos |
+| cfg, st, logs, log, m | PersistentBoardSink; JUnit PostgreSQL y smoke-local |
+| puertas A/B, sensores, desconexiones | DoorService y MonitoringService; se conservan observaciones y se indica indisponibilidad |
+| alarmas activas/cerradas/reconocidas | AlarmService; historial y reconocimiento local auditado |
+| EL 30–35 y USB | screenOrigins + DoorService + adaptador USB; prueba de protocolo con simulador |
+| registros, filtros, paginación | Queries y RecordsController; parámetros SQL y límites de consulta |
+| estado en vivo | SSE después del commit; reconexión y consulta completa al conectar |
+| SQLite histórico | backup-katana/import-katana; UID, checksums, rollback e importación repetida |
 
-1. Crear backup online con `python3 scripts/backup-katana.py`; copiarlo a almacenamiento protegido externo.
-2. Restaurar el dump en PostgreSQL aislado y comprobar tablas/conteos; verificar SHA256.
-3. Importar SQLite en una base Katana nueva, cotejar UIDs/conteos y repetir importación.
-4. Validar TCP/USB, seguridad, clientes, reinicios y WAN desconectada.
-5. Tomar backup final con escritores detenidos; repetir la importación final en otra base vacía antes de mover puertos.
-6. Detener únicamente contenedores `atalaya-laptop-*` antiguos, sin `down -v` ni prune.
-7. Ante fallo: detener Katana nuevo, restaurar configuración/imagen anterior y reiniciar
-   contenedores con sus volúmenes conservados. Conciliar datos recibidos después del corte;
-   nunca asumir rollback sin pérdida si hubo escrituras nuevas.
+Las órdenes remotas y la sincronización central se retiran expresamente. No existe
+API de movimiento ni se envían ORDEN/REINICIO. Esto no certifica maniobras físicas.
+El protocolo m carece de UID/fecha: cada recepción es una muestra nueva; no se
+eliminan muestras iguales que podrían ser mediciones legítimas. Logs y alarmas
+conservan identidad determinista; repetir un estado no duplica eventos de puerta.
+SSE invalida consultas: no pretende reproducir un diario durable por Last-Event-ID;
+el historial completo permanece en PostgreSQL y se vuelve a consultar tras reconectar.
 
+## Validación de esta continuación
 
-## Validación realizada el 2026-11-08
+- JUnit con PostgreSQL 17 real: transporte, integración HTTP/TCP, RBAC,
+  autenticación, estados A/B, rollback de frame inválido y recuperación auditada.
+- Migración sintética: fallo transaccional, checksum alterado, Unicode,
+  preservación de órdenes como evidencia no ejecutable y repetición idempotente.
+- Respaldo real `20261108T192802Z`: 1 nodo de origen, 2 puertas, 5 alarmas,
+  27 logs, 0 muestras, 1 usuario y 12 accesos; 99 registros originales archivados.
+  Una segunda identidad histórica existe por referencias de logs, no por hardware nuevo.
+- 27 pruebas Python anteriores pasaron antes de retirar el servidor sustituido.
+- Expo exporta bundles Android/iOS y comprueba TypeScript estricto. Esto no equivale
+  a un APK/IPA firmado ni a probar un teléfono físico.
 
-- 7 tests JUnit del transporte: autenticación, deadline, HORA/SYNC, todos los tipos
-  de mensaje, frame inválido sin efectos parciales, tamaño máximo y reconexión.
-- 27 tests originales Python aprobados (se conservan como referencia de paridad).
-- Backup SQLite: integrity_check, SHA256 y conteos verificados; 1 nodo registrado,
-  2 puertas, 5 alarmas, 27 logs, 0 muestras, 1 usuario, 12 accesos y 13 órdenes web.
-- Dump PostgreSQL restaurado en otra base, sin montar volúmenes originales.
-- Importación repetida: snapshots completos de filas idénticos, sin duplicación.
-- Fixture: telemetría, Unicode/comillas, estado cerrado de alarma, rol local,
-  evidencia de orden pendiente sin ejecución y rechazo de checksum alterado.
-- PostgreSQL de pruebas con `--network none`: migración ejecutada sin servicios
-  centrales ni conectividad externa. Esto NO certifica todavía la aplicación offline.
+El verificador anterior fallaba al conectar a localhost en una red Docker
+`internal` que no publicaba puertos. `verify-stack.py` usa las IP de ese puente en
+Linux, conserva el volumen de prueba y ejecuta secuencialmente reinicio y Playwright.
+Nunca se debe ejecutar otro simulador mientras compara persistencia.
 
-## Pendiente para cumplir el criterio final
+## Límites de la evidencia
 
-Persistencia transaccional BoardSink; Spring Data JPA; dominios y APIs locales;
-Security/RBAC/sesiones/restablecimientos; OpenAPI; SSE de estado; EL y puente USB;
-monitoreo offline; React Router/Tailwind y ocho pantallas locales; cliente móvil;
-Compose de tres servicios; reinicios/persistencia real; pruebas end-to-end y
-retirada de los originales. No se ha cambiado el servicio operativo ni se ha
-habilitado ningún comando físico. Esta rama aún no está lista para merge ni
-para sustituir Katana en producción.
+No se usó hardware físico, USB real, emuladores móviles ni comandos de movimiento.
+Los sketches operativos de puertas y pantalla no están en este repositorio;
+se conserva el adaptador USB y el cliente de diagnóstico sin GPIO.
+Las imágenes y dependencias necesitan descargarse durante la preparación/build;
+la ejecución con imágenes ya construidas funciona sin WAN. El móvil requiere LAN
+(o una VPN gestionada externamente); no hay push fuera de la red ni en segundo plano.
+La red `internal` de ensayo prueba el aislamiento del stack, no una desconexión física
+de la laptop. Los resultados CI deben comprobarse en el PR para el commit exacto.
