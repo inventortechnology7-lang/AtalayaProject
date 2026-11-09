@@ -25,7 +25,7 @@ public class PersistentBoardSink implements BoardSink {
   JsonNode systems;try{systems=json.readTree(rows.getFirst().get("systems").toString());}catch(Exception e){throw new IllegalStateException(e);}
   JsonNode body=message.body();
   if(body.has("cfg")){JsonNode cfg=body.get("cfg");if(cfg.has("cor"))systems=cfg.get("cor");db.update("UPDATE devices SET config=?::jsonb,systems=?::jsonb WHERE node=?",cfg.toString(),systems.toString(),node);}
-  db.update("UPDATE devices SET last_seen=? WHERE node=?",Values.at(at),node);
+  db.update("UPDATE devices SET last_seen=?,connected=true WHERE node=?",Values.at(at),node);
   db.update("UPDATE door_status SET last_contact=? WHERE door_id IN (SELECT id FROM doors WHERE node=?) AND NOT offline",Values.at(at),node);
   if(body.has("st")){JsonNode st=body.get("st");db.update("UPDATE devices SET screen_state=?::jsonb WHERE node=?",st.toString(),node);doors.report(node,st,at);alarms.snapshot(node,systems,st.path("al"),at);}
   if(body.has("logs"))for(JsonNode log:body.get("logs"))log(node,log.get(0),log.get(1).asInt(),log.get(2).asText(),log.get(3).asText(),at);

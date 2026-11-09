@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(classes=Application.class,webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT)
 class LocalIntegrationTest {
  @LocalServerPort int port;
+ @Autowired com.inventor.katana.users.UserService users;
  @Autowired JdbcTemplate db; @Autowired TcpLifecycle tcp; @Autowired ObjectMapper json; @Autowired MonitoringService monitoring;
  final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
  HttpResponse<String> request(String method,String path,Object body,String token)throws Exception {
@@ -64,4 +65,13 @@ class LocalIntegrationTest {
   for(int i=0;i<5;i++)assertEquals(401,request("POST","/api/local/auth/login",Map.of("email","nobody@test.local","password","bad-password"),null).statusCode());
   assertEquals(429,request("POST","/api/local/auth/login",Map.of("email","nobody@test.local","password","bad-password"),null).statusCode());
  }
+ @Test void importedAdminResetIsOneTimeAndAudited()throws Exception {
+  String email="imported@test.local";
+  db.update("INSERT INTO users(email,name,role,active,reset_required) VALUES(?,'Imported','ADMIN',true,true)",email);
+  users.bootstrap(email,"recovered-password-123",true);
+  assertEquals(200,request("GET","/api/local/auth/me",null,login(email,"recovered-password-123")).statusCode());
+  assertEquals(1,db.queryForObject("SELECT count(*) FROM audit_logs WHERE actor=? AND action='imported_admin_recovered'",Integer.class,email));
+  assertThrows(IllegalArgumentException.class,()->users.bootstrap(email,"another-password-123",true));
+ }
+
 }
