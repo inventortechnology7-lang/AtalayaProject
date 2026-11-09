@@ -31,7 +31,23 @@ with socket.create_connection((host,port),timeout=5) as board:
     time.sleep(.3)
     dashboard=api('/dashboard',token=session);assert len(dashboard['doors'])==2
     with urllib.request.urlopen(urllib.request.Request(base+'/api/local/events',headers={'Authorization':'Bearer '+session}),timeout=5) as events:
-        assert b'event:state' in events.readline()
+        def event():
+            lines=[]
+            while True:
+                line=events.readline()
+                if not line: raise AssertionError('SSE disconnected')
+                if line in (b'\n',b'\r\n'): return b''.join(lines)
+                lines.append(line)
+        first=event();assert b'event:state' in first
+        board.sendall((json.dumps({'cfg':{'cor':['Puertas'],'version':message}})+'\n').encode())
+        first_id=next(line for line in first.splitlines() if line.startswith(b'id:'))
+        for _ in range(4):
+            update=event()
+            if first_id not in update.splitlines(): break
+        else: raise AssertionError('No committed update delivered through SSE')
+    assert api('/alarms?active=true',token=session)['total']>=1
+    assert api('/telemetry',token=session)['total']>=2
+    assert api('/history',token=session)['total']>=2
     # Host TCP source must be explicitly configured as a screen for this verification.
     if os.environ.get('KATANA_EXPECT_EL')=='true':
         seen=set()

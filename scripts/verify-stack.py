@@ -4,9 +4,10 @@ import json, os, pathlib, subprocess, time
 root=pathlib.Path(__file__).resolve().parents[1]
 os.chdir(root)
 env=dict(os.environ,KATANA_WEB_PORT=os.environ.get('KATANA_WEB_PORT','28182'),KATANA_API_PORT=os.environ.get('KATANA_API_PORT','28180'),KATANA_TCP_PORT=os.environ.get('KATANA_TCP_PORT','18300'))
+env['KATANA_ENV_FILE']=str(pathlib.Path(os.environ.get('KATANA_ENV_FILE','.env.verify' if pathlib.Path('.env.verify').exists() else '.env')).resolve())
 project=os.environ.get('KATANA_TEST_PROJECT','katana-verify')
 if project in ('katana-local','atalaya-laptop','atalaya') or not project.startswith('katana-'): raise SystemExit('An isolated katana-* project is required')
-compose=['docker','compose','-p',project,'-f','compose.yaml','-f','compose.verify.yaml']
+compose=['docker','compose','--env-file',env['KATANA_ENV_FILE'],'-p',project,'-f','compose.yaml','-f','compose.verify.yaml']
 def run(args,**kwargs):return subprocess.run(args,env=env,check=True,**kwargs)
 def output(args):return subprocess.check_output(args,env=env).decode().strip()
 def counts():return output(compose+['exec','-T','katana-db','psql','-U','katana','-d','katana','-Atc',"SELECT (SELECT count(*) FROM system_logs),(SELECT count(*) FROM alarms),(SELECT count(*) FROM door_events),(SELECT count(*) FROM telemetry_samples)"])

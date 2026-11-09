@@ -1,7 +1,8 @@
 import {test,expect} from '@playwright/test';
 import fs from 'node:fs';
 import net from 'node:net';
-const env={...Object.fromEntries(fs.readFileSync(process.env.KATANA_ENV_FILE||'../.env','utf8').split('\n').filter(x=>x.includes('=')&&!x.startsWith('#')).map(x=>{const i=x.indexOf('=');return [x.slice(0,i),x.slice(i+1)];})),...process.env};
+import path from 'node:path';
+const env={...Object.fromEntries(fs.readFileSync(path.resolve('..',process.env.KATANA_ENV_FILE||'.env'),'utf8').split('\n').filter(x=>x.includes('=')&&!x.startsWith('#')).map(x=>{const i=x.indexOf('=');return [x.slice(0,i),x.slice(i+1)];})),...process.env};
 async function board(){const socket=net.createConnection({host:process.env.KATANA_TCP_HOST||'127.0.0.1',port:Number(process.env.KATANA_TCP_PORT||18300)});socket.on('error',()=>{});await new Promise((ok,no)=>{socket.once('connect',ok);socket.once('error',no);});await new Promise((ok,no)=>{socket.once('data',b=>b.toString().startsWith('HORA ')?ok():no(Error('Missing HORA')));socket.write('TOKEN '+env.PLACA_TOKEN+'\n');});const alarm=[[0,2,0,1794090000,'Alarma de banco · Sensor 2']];socket.write(JSON.stringify({cfg:{cor:['Puertas'],version:'simulador'},st:{pue:'A',puerta:'cerrada',el:[0,1,0],al:alarm},log:{t:1794090000,v:1,s:'Puertas',m:'Puerta A registro de banco'},m:[['Puertas','voltaje',12.3,'V']]})+'\n');socket.write(JSON.stringify({st:{pue:'B',puerta:'abierta',el:[0,0,0],al:alarm}})+'\n');return socket;}
 for(const viewport of [{width:1440,height:1000},{width:390,height:844}])test('Katana real TCP/API '+viewport.width,async({page})=>{
  await page.setViewportSize(viewport);const socket=await board();try{
