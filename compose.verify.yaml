@@ -1,0 +1,4 @@
+# Only the verification stack: isolated network has no WAN route.
+networks:
+  default:
+    internal: true

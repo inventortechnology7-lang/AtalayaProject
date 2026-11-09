@@ -52,6 +52,14 @@ public final class BoardTcpServer implements AutoCloseable {
         server = new ServerSocket();
         try { server.bind(bind, maxConnections); } catch (IOException e) { server.close(); workers.close(); throw e; }
     }
+    private Set<String> screenOrigins = Set.of();
+    public void screenOrigins(Set<String> origins) { screenOrigins = Set.copyOf(origins); }
+    public void refreshScreens() {
+        var lines = sink.screenLines();
+        for (var entry : nodes.entrySet()) if (screenOrigins.contains(entry.getKey())) {
+            try { for (String line : lines) entry.getValue().send(line); } catch (IOException e) { entry.getValue().close(); }
+        }
+    }
     public int port() { return server.getLocalPort(); }
     public void start() {
         if (!running.compareAndSet(false, true)) throw new IllegalStateException("already_started");
@@ -77,11 +85,14 @@ public final class BoardTcpServer implements AutoCloseable {
                 log.warn("event=tcp_auth_rejected node={} connection={}", node, client.id); return;
             }
             // The sink uses the connection UUID to fence old disconnects and writes.
-            sink.connected(client.id, node, client.socket.getRemoteSocketAddress().toString(), clock.instant());
-            authenticated = true;
-            Client previous = nodes.put(node, client);
-            if (previous != null) previous.close();
+            synchronized (nodes) {
+                sink.connected(client.id, node, client.socket.getRemoteSocketAddress().toString(), clock.instant());
+                authenticated = true;
+                Client previous = nodes.put(node, client);
+                if (previous != null) previous.close();
+            }
             client.send("HORA " + clock.instant().getEpochSecond());
+            if (screenOrigins.contains(node)) for (String line : sink.screenLines()) client.send(line);
             heartbeat = workers.submit(() -> {
                 try {
                     while (!client.socket.isClosed()) { Thread.sleep(syncInterval); client.send("SYNC"); }

@@ -16,3 +16,5 @@ firmware/**/secrets.h
 web/test-results/
 web/playwright-report/
 backups/
+
+.katana-test-endpoints.json

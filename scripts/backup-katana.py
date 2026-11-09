@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Online, non-destructive legacy backup. Never prints credentials or deletes volumes."""
-import datetime, hashlib, json, os, pathlib, sqlite3, subprocess
+import argparse, datetime, hashlib, json, os, pathlib, sqlite3, subprocess, tempfile
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--stopped', action='store_true', help='Back up a stopped legacy edge through docker cp, including SQLite WAL')
+args=parser.parse_args()
 os.umask(0o077)
 root = pathlib.Path('backups') / datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 root.mkdir(parents=True)
@@ -8,6 +11,11 @@ def run(*args):
     return subprocess.check_output(args)
 manifest = {'source_revision': run('git','rev-parse','HEAD').decode().strip(), 'files': {}}
 containers = json.loads(run('docker','inspect','atalaya-laptop-edge-1','atalaya-laptop-postgres-1'))
+if args.stopped and containers[0]['State']['Running']:
+    raise SystemExit('--stopped requires the legacy edge to be stopped')
+staging=tempfile.TemporaryDirectory()
+if args.stopped:
+    subprocess.run(['docker','cp','atalaya-laptop-edge-1:/data/.',staging.name],check=True)
 manifest['mounts'] = {c['Name']: c['Mounts'] for c in containers}
 for name in ('katana.db','usuarios.db'):
     code = '''import sqlite3,sys,tempfile,pathlib
@@ -21,7 +29,12 @@ with tempfile.TemporaryDirectory() as d:
  dst.close();src.close();sys.stdout.buffer.write(target.read_bytes())
 '''
     path=root/name
-    path.write_bytes(run('docker','exec','atalaya-laptop-edge-1','python3','-c',code,name))
+    if args.stopped:
+        source=pathlib.Path(staging.name)/name
+        with sqlite3.connect(f'file:{source}?mode=ro',uri=True) as src, sqlite3.connect(path) as dst:
+            src.backup(dst)
+    else:
+        path.write_bytes(run('docker','exec','atalaya-laptop-edge-1','python3','-c',code,name))
     with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
         assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
         tables=[r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
@@ -34,3 +47,5 @@ manifest['files'][path.name]={'sha256':hashlib.sha256(path.read_bytes()).hexdige
 (root/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 print(root)
 print(json.dumps(manifest['files'],indent=2))
+
+staging.cleanup()

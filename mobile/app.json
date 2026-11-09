@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "Atalaya",
-    "slug": "atalaya-laptop",
+    "name": "Katana Local",
+    "slug": "katana-local",
     "version": "1.0.0",
     "ios": {
-      "bundleIdentifier": "technology.inventor.atalaya"
+      "bundleIdentifier": "technology.inventor.katana"
     },
     "android": {
-      "package": "technology.inventor.atalaya"
+      "package": "technology.inventor.katana"
     },
     "plugins": [
-      "expo-secure-store",
-      "expo-notifications"
-    ]
+      "expo-secure-store"
+    ],
+    "userInterfaceStyle": "dark"
   }
 }

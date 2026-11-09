@@ -23,7 +23,7 @@ def sql(statement,database='katana'):
 try:
     run('docker','run','-d','--name',name,'--network','none','--tmpfs','/var/lib/postgresql/data','-e','POSTGRES_USER=katana','-e','POSTGRES_DB=katana','-e','POSTGRES_PASSWORD=test-only-password','postgres:17-alpine')
     for _ in range(60):
-        if subprocess.run(['docker','exec',name,'pg_isready','-U','katana'],capture_output=True).returncode==0: break
+        if subprocess.run(['docker','exec',name,'pg_isready','-h','127.0.0.1','-U','katana','-d','katana'],capture_output=True).returncode==0: break
         time.sleep(0.5)
     if dump:
         sql('CREATE DATABASE restored;')

@@ -1,56 +1,88 @@
-# AtalayaProjectLaptop
+# Katana Local
 
-Migración incremental de Katana y Negra: Spring Boot / PostgreSQL, React web,
-React Native, edge Python con SQLite offline y protocolo TCP ESP32 / Arduino.
+Supervisión local de puertas A/B y nodos Arduino/ESP32. Spring Boot + PostgreSQL +
+React, con cliente React Native. Sin servidor central ni sincronización remota.
+No ofrece comandos de movimiento.
 
-## Arranque local
+## Inicio
 
-Requiere Docker Compose, Python 3 y Node 24 para desarrollar clientes.
+Requisitos de preparación: Docker Compose, acceso a imágenes/dependencias al construir.
+Después del build no se necesita internet WAN.
 
-```sh
-python3 scripts/init-env.py
-npm ci --prefix web
-npm ci --prefix mobile
+```bash
+python3 scripts/init-env.py   # sólo si no existe .env; credenciales aleatorias, modo 0600
+# Revisar .env: credenciales locales, PLACA_TOKEN y direcciones LAN.
 docker compose up -d --build
 ```
 
-- Web React: http://127.0.0.1:28081 — ADMIN_EMAIL / ADMIN_PASSWORD de `.env`.
-- API: http://127.0.0.1:28080; readiness: `/health`.
-- Gestor Katana offline: http://127.0.0.1:28082 — LOCAL_UI_EMAIL / LOCAL_UI_PASSWORD.
-- TCP: 127.0.0.1:8300, PLACA_TOKEN de `.env`.
+Exactamente tres servicios: `katana-db`, `katana-backend` y `katana-web`.
+Web: http://127.0.0.1:28082. API: http://127.0.0.1:28080/api/local.
+TCP: 8300. Puertos y direcciones configurables en [.env.example](.env.example).
+Los valores por defecto sólo escuchan en localhost. Para teléfonos y placas,
+asignar API_BIND/WEB_BIND/TCP_BIND a la IP LAN de esta laptop y limitar el firewall
+a la red de confianza. TCP identifica cada nodo por IP: mantener direcciones estables.
+El token de placas debe coincidir con el provisionado; nunca se escribe en logs.
 
-Las claves se generan al azar, no se imprimen y `.env` tiene permisos 0600.
-PostgreSQL no publica puerto. Los datos sobreviven a `docker compose down`;
-`down -v` elimina los volúmenes y **no** es un procedimiento de actualización.
-Las cuentas se crean solo al primer arranque: cambiar `.env` no rota claves existentes.
+El volumen `katana-local_katana-data` es nuevo e independiente de los volúmenes
+anteriores. No ejecutar `down -v`, `prune` ni reutilizar el volumen central.
+Antes de activar 8300, detener el receptor sustituido; nunca mantener dos receptores
+operativos en ese puerto. No hace falta borrar los contenedores ni volúmenes antiguos.
 
-## Desarrollo y validación
+Roles: OPERADOR consulta, TECNICO reconoce alarmas y ADMIN administra usuarios y
+parámetros. Sesiones de 12 horas, hashes BCrypt y revocación al cambiar un usuario.
+API documentada en `/api/local/openapi` con autenticación. SSE en `/api/local/events`.
+Las pantallas distinguen sensores observados de datos indisponibles por desconexión.
 
-```sh
-python3 -m unittest discover -s edge -v
-scripts/test-backend.sh
-npm run build --prefix web
-npm run export --prefix mobile
-python3 scripts/smoke-stack.py
-cd web && npx playwright install chromium && npm test
+## Migración y recuperación
+
+Ver [procedimiento de migración](docs/katana/MIGRATION.md) antes de iniciar una base
+que vaya a recibir información histórica. `scripts/backup-katana.py` conserva el
+respaldo original SQLite y PostgreSQL; `scripts/import-katana.py` importa a una
+base nueva, sin ejecutar órdenes históricas. Usuarios importados requieren reset.
+
+Respaldo PostgreSQL actual:
+
+```bash
+python3 scripts/backup-local.py
 ```
 
-La prueba `smoke-stack.py` requiere la pila iniciada y detiene temporalmente **su**
-backend y reinicia **su** edge. Genera registros de diagnóstico y una ORDEN hacia
-un cliente TCP simulado; usar únicamente en esta instalación de pruebas, sin placas
-operativas conectadas. El test web usa esos registros para validar la consulta real.
+Los respaldos quedan en `backups/`, permisos privados y sin versionar.
+Copiarlos a almacenamiento protegido externo. Para restaurar, crear otro volumen,
+verificar SHA256 y usar `pg_restore --exit-on-error --no-owner --no-acl` en una base
+vacía. Probar la restauración antes de cambiar los puertos. Conservar los datos
+recibidos después del respaldo: un rollback no recupera automáticamente esas filas.
 
-Móvil: definir `EXPO_PUBLIC_API_URL=https://<servidor>` y ejecutar `npm start` dentro
-de mobile. El móvil requiere HTTPS accesible desde el dispositivo. El token se guarda
-en SecureStore. La exportación genera bundles; no equivale a instalar APK/IPA.
+## Cliente móvil y USB
 
-## Documentación
+Ver [mobile/README.md](mobile/README.md). El cliente usa sólo APIs locales,
+SecureStore, SSE con reconexión y caché de lectura marcada con fecha.
+La pantalla USB utiliza [usb/puente_pantalla.py](usb/puente_pantalla.py), el único
+adaptador Python operativo permitido; no sustituye ni inicia un receptor.
 
-- [Fases y decisiones](docs/MIGRATION.md)
-- [Contratos Katana / Negra](docs/CONTRACTS.md)
-- [Operación, backup y seguridad](docs/OPERATIONS.md)
-- [Evidencia de validación](docs/VALIDATION.md)
-- [ESP32 / Arduino y banco físico](firmware/README.md)
+```bash
+python3 -m pip install -r usb/requirements.txt
+python3 usb/puente_pantalla.py --servidor 127.0.0.1 --token-archivo .env
+```
 
-El original se conserva en `pro-20261108T053634Z-1-001/pro/`. Se eliminó únicamente
-el valor del token versionado; los contratos originales no requieren cambios en placas.
+Configurar PANTALLA_ORIGEN con la IP origen que ve el backend Docker, normalmente
+el gateway del puente para un adaptador ejecutado en el host. EL 30–35 representa
+Sensor 1/Sensor 2/Motor de A y B. La prueba de software no certifica la pantalla física.
+
+## Validación reproducible
+
+```bash
+bash scripts/test-backend.sh
+python3 scripts/test-katana-migration.py
+python3 -m unittest discover -s usb -v
+npm ci --prefix web
+npx --prefix web playwright install --with-deps chromium
+python3 scripts/verify-stack.py
+npm ci --prefix mobile
+npm run export --prefix mobile
+```
+
+`verify-stack.py` requiere Docker Linux y usa `katana-verify`, su propio volumen,
+una red sin WAN y simuladores. Incluye Playwright 1440/390 px; capturas en
+`web/test-results`. No ejecutarlo contra producción ni simultáneamente con otro
+simulador. `CHROMIUM_PATH` permite usar un Chromium ya instalado.
+Consultar [implementación y límites](docs/katana/IMPLEMENTATION.md).
