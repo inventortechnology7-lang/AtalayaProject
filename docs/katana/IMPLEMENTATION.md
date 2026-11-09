@@ -65,3 +65,32 @@ la ejecución con imágenes ya construidas funciona sin WAN. El móvil requiere 
 (o una VPN gestionada externamente); no hay push fuera de la red ni en segundo plano.
 La red `internal` de ensayo prueba el aislamiento del stack, no una desconexión física
 de la laptop. Los resultados CI deben comprobarse en el PR para el commit exacto.
+
+## Corte realizado en la laptop (2026-11-08, hora de Lima)
+
+- Respaldo final con escritor detenido: `backups/20261109T011208Z` (UTC).
+  Se ensayó su restauración e importación repetida antes de activar el receptor.
+- Flyway `--migrate-only` preparó `katana-local_katana-data`; se importó dos veces
+  sin cambios y se recuperó el ADMIN histórico con una contraseña nueva en `.env`.
+  `RECOVER_IMPORTED_ADMIN` volvió a false tras verificar el acceso.
+- `atalaya-laptop-edge-1`, backend, web y PostgreSQL anteriores están detenidos;
+  sus contenedores y volúmenes se conservaron. No se tocaron otros proyectos Docker.
+- El proyecto final tiene tres servicios saludables: web 28082, API 28080 y TCP
+  Java 8300, enlazados a localhost. La base final contiene 27 logs, 5 alarmas,
+  2 puertas, 1 usuario y 99 registros históricos originales; cero nodos simulados
+  conectados. Las pruebas con simuladores usan exclusivamente `katana-verify`.
+- Dump de Katana actual restaurado en PostgreSQL aislado: SHA256 válido y hashes
+  completos de filas idénticos en 11 tablas, incluidos usuarios y auditoría.
+- Resultado local final: 7 tests TCP, 2 tests de integración con PostgreSQL,
+  7 tests USB, migración sintética y real, dos Playwright (1440/390) y exportación
+  Expo Android/iOS aprobados. SSE se comprueba recibiendo una revisión posterior
+  al commit, además del evento inicial y reconexión de los clientes.
+- La copia anidada `AtalayaProjectLaptop/` se conserva sin modificar y se excluye
+  sólo del índice del repositorio padre mediante `.git/info/exclude`.
+- Fuentes retiradas y configuración anterior conservadas privadamente en
+  `backups/retired-source-20261109`; no forman parte de la aplicación final.
+
+La comprobación de secretos se refiere al árbol versionado final y patrones
+conocidos, no a una certificación absoluta ni al borrado del historial Git.
+El PR hacia main es #4; no se ha realizado merge. Consultar sus checks para
+el resultado remoto del commit final.

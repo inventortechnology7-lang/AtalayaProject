@@ -1,3 +1,6 @@
+> Documento histórico de la fase anterior. El estado vigente y las comprobaciones
+> están en [IMPLEMENTATION.md](IMPLEMENTATION.md). No usar esta auditoría como guía de arranque.
+
 # Katana Local: auditoría y puerta de salida
 
 Base: main 092a8ce (PR #2), 2026-11-08. Cuenta CLI verificada:
